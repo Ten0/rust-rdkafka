@@ -7,7 +7,6 @@ use std::error::Error;
 use std::future::Future;
 use std::marker::PhantomData;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
@@ -124,7 +123,6 @@ impl<'a, K: ToBytes + ?Sized, P: ToBytes + ?Sized> FutureRecord<'a, K, P> {
 ///
 /// This context will use a [`Future`] as its `DeliveryOpaque` and will complete
 /// the future when the message is delivered (or failed to).
-#[derive(Clone)]
 pub struct FutureProducerContext<C: ClientContext + 'static> {
     wrapped_context: C,
 }
@@ -199,20 +197,8 @@ pub struct FutureProducer<C = DefaultClientContext, R = DefaultRuntime>
 where
     C: ClientContext + 'static,
 {
-    producer: Arc<ThreadedProducer<FutureProducerContext<C>>>,
+    producer: ThreadedProducer<FutureProducerContext<C>>,
     _runtime: PhantomData<R>,
-}
-
-impl<C, R> Clone for FutureProducer<C, R>
-where
-    C: ClientContext + 'static,
-{
-    fn clone(&self) -> FutureProducer<C, R> {
-        FutureProducer {
-            producer: self.producer.clone(),
-            _runtime: PhantomData,
-        }
-    }
 }
 
 impl<R> FromClientConfig for FutureProducer<DefaultClientContext, R>
@@ -238,7 +224,7 @@ where
         };
         let threaded_producer = ThreadedProducer::from_config_and_context(config, future_context)?;
         Ok(FutureProducer {
-            producer: Arc::new(threaded_producer),
+            producer: threaded_producer,
             _runtime: PhantomData,
         })
     }
@@ -429,20 +415,13 @@ mod tests {
         }
     }
 
-    // Verify that the future producer is clone, according to documentation.
     #[test]
-    fn test_future_producer_clone() {
-        let producer = ClientConfig::new().create::<FutureProducer>().unwrap();
-        let _producer_clone = producer.clone();
-    }
-
-    // Test that the future producer can be cloned even if the context is not Clone.
-    #[test]
-    fn test_base_future_topic_send_sync() {
+    fn test_producer_send_sync() {
         let test_context = TestContext;
         let producer = ClientConfig::new()
             .create_with_context::<_, FutureProducer<TestContext>>(test_context)
             .unwrap();
-        let _producer_clone = producer.clone();
+        fn assert_sendsync<T: Send + Sync>(_: T) {}
+        assert_sendsync(producer);
     }
 }
